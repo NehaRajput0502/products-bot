@@ -7,6 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+
   <style>
         /* ===== DUKEJIA Design Tokens (brand palette) ===== */
     :root{
@@ -422,7 +424,10 @@
     .hca-avatar{ width:30px; height:30px; flex:0 0 30px; display:flex; align-items:center; justify-content:center; }
     .hca-avatar img{ width:100%; height:100%; object-fit:contain; display:block; }
 
+    /* Chat bubble list spacing */
     .hca-bubble{ max-width:76%; padding:10px 12px; border-radius:14px; font:500 14px/1.5 Inter,system-ui; word-wrap:break-word; }
+    .hca-bubble ul{ padding-left:18px; margin:6px 0; }
+    .hca-bubble li{ margin:6px 0; }
     .hca-row.bot  .hca-bubble{ background:#faf9f6; color:#111; border:1px solid #e5e7eb; border-bottom-left-radius:6px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
     .hca-row.user .hca-bubble{ background:#8c84f5; color:#faf9f6; border-bottom-right-radius:6px; text-align:right; margin-left:auto; }
 
@@ -876,35 +881,87 @@
   const waHref = s => { let n = digits(s); if (n.length <= 10) n = "91" + n; return `https://wa.me/${n}`; };
 
   function renderMarkdown(inputText){
-    const escapeHtml = s => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    const text = escapeHtml(inputText).replace(/\r\n/g, "\n");
-    const inline = (s) => {
-      s = s.replace(/(?![^<]*>)(Call|Phone|Mobile|Number|Tel(?:ephone)?)\s*[:\-]?\s*([+]?[\d\s().-]{6,}\d)/gi,
-        (_m, label, num) => `<a href="${telHref(num)}" target="_blank" rel="noopener">${label}: ${num.replace(/\s+/g," ").trim()}</a>`);
-      s = s.replace(/(?![^<]*>)(?:https?:\/\/)?wa\.me\/(\d{6,})/gi,
-        (_m, num) => `<a href="https://wa.me/${num}" target="_blank" rel="noopener">WhatsApp</a>`);
-      s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      s = s.replace(/(?![^<]*>)([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" target="_blank" rel="noopener">$1</a>');
-      s = s.replace(/(?![^<]*>)(WhatsApp|Whatsapp|WA)\s*[:\-]?\s*([+]?[\d\s().-]{6,}\d)/gi,
-        (_m, _w, num) => `<a href="${waHref(num)}" target="_blank" rel="noopener">WhatsApp: ${num.replace(/\s+/g," ").trim()}</a>`);
-      s = s.replace(/(?![^<]*>)(?<!\w)(\+?[\d][\d\s().-]{6,}\d)(?!\w)/g,
-        (m) => `<a href="${telHref(m)}" target="_blank" rel="noopener">${m}</a>`);
-      s = s.replace(/(?![^<]*>)(\b(?:https?:\/\/|www\.)[^\s<)]+[^\s<).,!?:;])/gi,
-        (m) => `<a href="${addHttp(m)}" target="_blank" rel="noopener">${m.replace(/^https?:\/\//i,'')}</a>`);
-      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-      s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>');
-      return s;
-    };
-    const lines = text.split("\n"); let html="", inList=false; const closeList=()=>{if(inList){html+="</ul>";inList=false;}}; 
-    for (let i=0;i<lines.length;i++){
-      const line=lines[i]; const m=line.match(/^\s*[*-]\s+(.+)/);
-      if(m){ if(!inList){html+="<ul>";inList=true;} html+=`<li>${inline(m[1].trim())}</li>`; continue; }
-      if(line.trim()===""){ closeList(); html+="<br/>"; continue; }
-      closeList(); html+=inline(line)+"<br/>";
-    }
-    closeList(); return html;
+  const escapeHtml = s => String(s).replace(/[&<>"']/g, m => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]
+  ));
+  const text = escapeHtml(inputText).replace(/\r\n/g, "\n");
+
+  const addHttp = url => /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const digits  = s => String(s||"").replace(/[^\d]/g,"");
+  const telHref = s => `tel:${digits(s)}`;
+  const waHref  = s => { let n = digits(s); if (n.length <= 10) n = "91" + n; return `https://wa.me/${n}`; };
+
+  // prevent double-linking when already inside a tag
+  const insideTag = (str, idx) => {
+    const lastLt = str.lastIndexOf('<', idx);
+    const lastGt = str.lastIndexOf('>', idx);
+    return lastLt > lastGt;
+  };
+
+  function inline(s){
+    // [label](url)
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // plain emails
+    s = s.replace(/(?![^<]*>)([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+      '<a href="mailto:$1" target="_blank" rel="noopener">$1</a>');
+
+    // plain http/https/www
+    s = s.replace(/(?![^<]*>)(\b(?:https?:\/\/|www\.)[^\s<)]+[^\s<).,!?:;])/gi,
+      m => `<a href="${addHttp(m)}" target="_blank" rel="noopener">${m.replace(/^https?:\/\//i,'')}</a>`);
+
+    // generic phone → tel:, but not if already inside an <a>
+    s = s.replace(/(\+?[\d][\d\s().-]{6,}\d)/g, (m, _n, offset, orig) =>
+      insideTag(orig, offset) ? m : `<a href="${telHref(m)}" target="_blank" rel="noopener">${m}</a>`);
+
+    // code / bold / italic
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>');
+    return s;
   }
+
+  const lines = text.split("\n");
+  let html = "", inList = false;
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+
+  for (let i = 0; i < lines.length; i++){
+    const line = lines[i];
+
+    // Accept "*", "-", or "•" as list bullets
+    const m = line.match(/^\s*([*-]|•)\s+(.+)/);
+    if (m){
+      if (!inList) { html += "<ul>"; inList = true; }
+      const item = m[2].trim();
+
+      // Stacked WhatsApp
+      const wa = item.match(/^(WhatsApp|Whatsapp|WA)\s*:\s*([+]?[\d\s().-]{6,}\d)\s*$/i);
+      if (wa){
+        const num = wa[2].replace(/\s+/g,' ').trim();
+        html += `<li><strong>WhatsApp:</strong><br><a href="${waHref(num)}" target="_blank" rel="noopener">${num}</a></li>`;
+        continue;
+      }
+
+      // Stacked Email
+      const em = item.match(/^(Email)\s*:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*$/i);
+      if (em){
+        const addr = em[2];
+        html += `<li><strong>Email:</strong><br><a href="mailto:${addr}" target="_blank" rel="noopener">${addr}</a></li>`;
+        continue;
+      }
+
+      // Any other bullet
+      html += `<li>${inline(item)}</li>`;
+      continue;
+    }
+
+    if (line.trim() === "") { closeList(); html += "<br/>"; continue; }
+    closeList(); html += inline(line) + "<br/>";
+  }
+  closeList();
+  return html;
+}
 
   /* ---------- Message bubbles ---------- */
   function appendMsg(text, who="bot"){
@@ -1056,9 +1113,11 @@
     menuToggle.addEventListener('click', () => {
       navCenter.classList.toggle('open');
       if (navCenter.classList.contains('open')) {
-        menuIcon.classList.remove('fa-bars'); menuIcon.classList.add('fa-times');
+        menuIcon.classList.remove('fa-bars');
+        menuIcon.classList.add('fa-xmark'); // FA6 close icon
       } else {
-        menuIcon.classList.remove('fa-times'); menuIcon.classList.add('fa-bars');
+        menuIcon.classList.remove('fa-xmark');
+        menuIcon.classList.add('fa-bars');
       }
     });
 
@@ -1066,7 +1125,7 @@
     document.querySelectorAll('.nav-center a').forEach(link => {
       link.addEventListener('click', () => {
         navCenter.classList.remove('open');
-        menuIcon.classList.remove('fa-times');
+        menuIcon.classList.remove('fa-xmark');
         menuIcon.classList.add('fa-bars');
       });
     });
